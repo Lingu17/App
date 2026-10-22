@@ -569,40 +569,40 @@ function suggestEmojis(text: string, locale: Locale = CONST.LOCALES.DEFAULT, lim
     }
 
     const matching: Emoji[] = [];
-    const nodes = trie.getAllMatchingWords(emojiData[0].toLowerCase().slice(1), limit);
+    const addedNames = new Set<string>();
+
+    // Walk every word under the typed prefix instead of stopping after `limit` words. Keyword words
+    // (e.g. "party" for 🎂) sit high in the trie and each one brings in several emojis, so a capped walk
+    // filled the list with keyword-only matches before it reached emojis whose names start with the
+    // prefix (e.g. `:pa` never reached 🐼 panda_face). The prefix subtree is small, so this stays cheap.
+    const nodes = trie.getAllMatchingWords(emojiData[0].toLowerCase().slice(1), Number.POSITIVE_INFINITY);
     for (const node of nodes) {
         // The trie stores aliases as separate nodes pointing to the same emoji, so prefer the
         // canonical name from `metaData.name` over the trie path so dedupe and result names are consistent.
         const canonicalName = node.metaData?.name ?? node.name;
-        if (node.metaData?.code && !matching.find((obj) => obj.name === canonicalName)) {
+        if (node.metaData?.code && !addedNames.has(canonicalName)) {
             const hexcode = node.metaData.hexcode ?? findEmojiByCode(node.metaData.code)?.hexcode ?? findEmojiByName(canonicalName)?.hexcode;
+            if (hexcode) {
+                addedNames.add(canonicalName);
+                matching.push({code: node.metaData.code, name: canonicalName, types: node.metaData.types, hexcode});
+            }
+        }
+
+        for (const suggestion of node.metaData?.suggestions ?? []) {
+            if (addedNames.has(suggestion.name)) {
+                continue;
+            }
+            const hexcode = suggestion.hexcode ?? findEmojiByCode(suggestion.code)?.hexcode;
             if (!hexcode) {
                 continue;
             }
-            if (matching.length === limit) {
-                return lodashSortBy(matching, (emoji) => sortByName(emoji, emojiData));
-            }
-            matching.push({code: node.metaData.code, name: canonicalName, types: node.metaData.types, hexcode});
-        }
-        const suggestions = node.metaData.suggestions;
-        if (!suggestions) {
-            return;
-        }
-        for (const suggestion of suggestions) {
-            if (matching.length === limit) {
-                return lodashSortBy(matching, (emoji) => sortByName(emoji, emojiData));
-            }
-
-            if (!matching.find((obj) => obj.name === suggestion.name)) {
-                const hexcode = suggestion.hexcode ?? findEmojiByCode(suggestion.code)?.hexcode;
-                if (!hexcode) {
-                    continue;
-                }
-                matching.push({...suggestion, hexcode});
-            }
+            addedNames.add(suggestion.name);
+            matching.push({...suggestion, hexcode});
         }
     }
-    return lodashSortBy(matching, (emoji) => sortByName(emoji, emojiData));
+
+    // Rank name and alias matches ahead of keyword-only matches, then apply the limit.
+    return lodashSortBy(matching, (emoji) => sortByName(emoji, emojiData)).slice(0, limit);
 }
 
 /**

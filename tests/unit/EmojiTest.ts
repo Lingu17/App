@@ -382,6 +382,34 @@ describe('EmojiTest', () => {
         expect(EmojiUtils.suggestEmojis(text, 'en', limit)?.length).toBe(limit);
     });
 
+    it('suggests emojis whose name starts with the typed text before keyword-only matches', () => {
+        // Given a prefix where keyword words like "party" sit higher in the emoji trie than many emoji names starting with "pa"
+        const text = ':pa';
+
+        // When suggestions are built with the default limit
+        const suggestions = EmojiUtils.suggestEmojis(text, 'en') ?? [];
+        const suggestedNames = suggestions.map((emoji) => emoji.name);
+
+        // Then name matches further down the trie are still suggested and keyword-only matches don't take their place
+        expect(suggestions).toHaveLength(CONST.AUTO_COMPLETE_SUGGESTER.MAX_AMOUNT_OF_SUGGESTIONS);
+        expect(suggestedNames).toEqual(expect.arrayContaining(['panda_face', 'pancakes', 'palm_tree']));
+        expect(suggestedNames).not.toContain('birthday');
+        expect(suggestedNames).not.toContain('fried_egg');
+        expect(suggestedNames).not.toContain('haircut');
+    });
+
+    it('suggests keyword-only matches after the name matches when there are not enough name matches', () => {
+        // Given a prefix that only a few emoji names contain
+        const text = ':star';
+
+        // When suggestions are built with the default limit
+        const suggestedNames = (EmojiUtils.suggestEmojis(text, 'en') ?? []).map((emoji) => emoji.name);
+
+        // Then every name match is listed first and keyword matches like 💫 still fill the remaining slots
+        expect(suggestedNames.slice(0, 9).every((name) => name.includes('star'))).toBe(true);
+        expect(suggestedNames.slice(9)).toEqual(expect.arrayContaining(['dizzy', 'sparkles']));
+    });
+
     it('correct suggests emojis accounting for keywords', () => {
         const thumbEmojisEn: Emoji[] = [
             {
